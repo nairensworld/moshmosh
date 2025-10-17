@@ -8,11 +8,13 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 app.get("/", (req: Request, res: Response) => {
-  res.send(process.env.GEMINI_API_KEY || "No API Key Set");
+  console.log("a new request just came in");
+  res.send("Hi this is Itay");
+  
 });
 
 app.get("/api/hello", (req: Request, res: Response) => {
-  res.send({ message: "Hello, World!" });
+  res.send({ message: "Hi Itay, welcome to the server client world" });
 });
 
 app.listen(port, () => {
