@@ -1,12 +1,10 @@
 import express from 'express';
 import type { Request, Response } from 'express';
 import dotenv from 'dotenv';
-import { GoogleGenAI, type Content } from '@google/genai';
 import z from 'zod';
-import { chatHistroryRepository } from './repositories/chatHistory.repository';
+import { chatHistoryService } from './services/chatHistory.service';
 
 dotenv.config();
-const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const app = express();
 app.use(express.json());
@@ -38,27 +36,14 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       }
 
       const { prompt, userId } = req.body;
-      const history: Content[] = chatHistroryRepository.getHistory(userId);
-
-      const contentsList: Content[] = [
-         ...history,
-         { role: 'user', parts: [{ text: prompt }] },
-      ];
-
-      const response = await client.models.generateContent({
-         model: 'gemini-2.5-flash', // A fast, suitable model for chat
-         contents: contentsList,
-      });
-      if (!response || !response.text) {
-         throw new Error('No response from model');
-      }
-      const modelResponseText = response.text.trim();
-      chatHistroryRepository.saveHistoryTurn(userId, prompt, modelResponseText);
+      const chatHistoryResponse = await chatHistoryService.sendMessage(
+         userId,
+         prompt
+      );
 
       res.json({
          userId: userId,
-         response: modelResponseText,
-         history: history,
+         response: chatHistoryResponse.modelResponseText,
       });
    } catch (error) {
       console.error('Error processing /api/chat request:', error);
@@ -74,7 +59,7 @@ app.get('/history/:userId', (req: Request, res: Response) => {
    if (!userId) {
       return res.status(400).json({ error: 'userId parameter is required' });
    }
-   const history: Content[] = chatHistroryRepository.getHistory(userId);
+   const history = chatHistoryService.getHistory(userId);
    res.json({ userId, history });
 });
 
