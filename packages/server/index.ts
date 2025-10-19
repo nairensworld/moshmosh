@@ -28,19 +28,56 @@ const chatSchema = z.object({
       .max(1000, 'prompt is too long'),
 });
 
+const userHistoryStore = new Map();
+
 app.post('/api/chat', async (req: Request, res: Response) => {
-   const parsedResult = chatSchema.safeParse(req.body);
+   try {
+      const parsedResult = chatSchema.safeParse(req.body);
 
-   if (!parsedResult.success) {
-      return res.status(400).json({ error: parsedResult.error.format() });
+      if (!parsedResult.success) {
+         return res.status(400).json({ error: parsedResult.error.format() });
+      }
+
+      const { prompt, userId } = req.body;
+      const history = userHistoryStore.get(userId) || [];
+
+      const contents = [
+         ...history,
+         { role: 'user', parts: [{ text: prompt }] },
+      ];
+
+      const response = await client.models.generateContent({
+         model: 'gemini-2.5-flash', // A fast, suitable model for chat
+         contents: contents,
+      });
+      if (!response || !response.text) {
+         throw new Error('No response from model');
+      }
+      const modelResponseText = response.text.trim();
+      history.push({ role: 'user', parts: [{ text: prompt }] });
+      history.push({ role: 'model', parts: [{ text: modelResponseText }] });
+      userHistoryStore.set(userId, history);
+
+      res.json({
+         userId: userId,
+         response: modelResponseText,
+         history: history,
+      });
+   } catch (error) {
+      console.error('Error processing /api/chat request:', error);
+      res.status(500).json({ error: 'Failed to generate a response' });
    }
+});
 
-   const { prompt } = req.body;
-   const response = await client.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-   });
-   res.json({ message: response.text });
+// Endpoint to retrieve a user's *full* history (for debugging/inspection)
+app.get('/api/history', (req: Request, res: Response) => {
+   const { userId } = req.params;
+
+   const history = userHistoryStore.get(userId) || [];
+   console.log('user history:');
+   console.log(JSON.stringify(history));
+
+   res.json({ userId, history });
 });
 
 app.listen(port, () => {
