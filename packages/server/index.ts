@@ -1,8 +1,9 @@
 import express from 'express';
 import type { Request, Response } from 'express';
 import dotenv from 'dotenv';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, type Content } from '@google/genai';
 import z from 'zod';
+import { chatHistroryRepository } from './repositories/chatHistory.repository';
 
 dotenv.config();
 const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -28,8 +29,6 @@ const chatSchema = z.object({
       .max(1000, 'prompt is too long'),
 });
 
-const userHistoryStore = new Map();
-
 app.post('/api/chat', async (req: Request, res: Response) => {
    try {
       const parsedResult = chatSchema.safeParse(req.body);
@@ -39,24 +38,22 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       }
 
       const { prompt, userId } = req.body;
-      const history = userHistoryStore.get(userId) || [];
+      const history: Content[] = chatHistroryRepository.getHistory(userId);
 
-      const contents = [
+      const contentsList: Content[] = [
          ...history,
          { role: 'user', parts: [{ text: prompt }] },
       ];
 
       const response = await client.models.generateContent({
          model: 'gemini-2.5-flash', // A fast, suitable model for chat
-         contents: contents,
+         contents: contentsList,
       });
       if (!response || !response.text) {
          throw new Error('No response from model');
       }
       const modelResponseText = response.text.trim();
-      history.push({ role: 'user', parts: [{ text: prompt }] });
-      history.push({ role: 'model', parts: [{ text: modelResponseText }] });
-      userHistoryStore.set(userId, history);
+      chatHistroryRepository.saveHistoryTurn(userId, prompt, modelResponseText);
 
       res.json({
          userId: userId,
@@ -69,14 +66,15 @@ app.post('/api/chat', async (req: Request, res: Response) => {
    }
 });
 
-// Endpoint to retrieve a user's *full* history (for debugging/inspection)
-app.get('/api/history', (req: Request, res: Response) => {
+/**
+ * GET /history/:userId - Endpoint to retrieve the stored history.
+ */
+app.get('/history/:userId', (req: Request, res: Response) => {
    const { userId } = req.params;
-
-   const history = userHistoryStore.get(userId) || [];
-   console.log('user history:');
-   console.log(JSON.stringify(history));
-
+   if (!userId) {
+      return res.status(400).json({ error: 'userId parameter is required' });
+   }
+   const history: Content[] = chatHistroryRepository.getHistory(userId);
    res.json({ userId, history });
 });
 
